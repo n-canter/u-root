@@ -13,8 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -28,34 +26,9 @@ const (
 	MODULE_INIT_IGNORE_VERMAGIC = 0x2
 )
 
-// SyscallError contains an error message as well as the actual syscall Errno
-type SyscallError struct {
-	Msg   string
-	Errno syscall.Errno
-}
-
-func (s *SyscallError) Error() string {
-	if s.Errno != 0 {
-		return fmt.Sprintf("%s: %v", s.Msg, s.Errno)
-	}
-	return s.Msg
-}
-
 // Init loads the kernel module given by image with the given options.
 func Init(image []byte, opts string) error {
-	optsNull, err := unix.BytePtrFromString(opts)
-	if err != nil {
-		return &SyscallError{Msg: fmt.Sprintf("kmodule.Init: could not convert %q to C string: %v", opts, err)}
-	}
-
-	if _, _, e := unix.Syscall(unix.SYS_INIT_MODULE, uintptr(unsafe.Pointer(&image[0])), uintptr(len(image)), uintptr(unsafe.Pointer(optsNull))); e != 0 {
-		return &SyscallError{
-			Msg:   fmt.Sprintf("init_module(%v, %q) failed", image, opts),
-			Errno: e,
-		}
-	}
-
-	return nil
+	return unix.InitModule(image, opts)
 }
 
 // FileInit loads the kernel module contained by `f` with the given opts and
@@ -63,44 +36,26 @@ func Init(image []byte, opts string) error {
 //
 // FileInit falls back to Init when the finit_module(2) syscall is not available.
 func FileInit(f *os.File, opts string, flags uintptr) error {
-	optsNull, err := unix.BytePtrFromString(opts)
-	if err != nil {
-		return &SyscallError{Msg: fmt.Sprintf("kmodule.Init: could not convert %q to C string: %v", opts, err)}
-	}
-
-	if _, _, e := unix.Syscall(unix.SYS_FINIT_MODULE, f.Fd(), uintptr(unsafe.Pointer(optsNull)), flags); e == unix.ENOSYS {
+	err := unix.FinitModule(int(f.Fd()), opts, int(flags))
+	if err == unix.ENOSYS {
 		if flags != 0 {
-			return &SyscallError{Msg: fmt.Sprintf("finit_module unavailable"), Errno: e}
+			return err
 		}
 
 		// Fall back to regular init_module(2).
 		img, err := ioutil.ReadAll(f)
 		if err != nil {
-			return &SyscallError{Msg: fmt.Sprintf("kmodule.FileInit: %v", err)}
+			return err
 		}
 		return Init(img, opts)
-	} else if e != 0 {
-		return &SyscallError{
-			Msg:   fmt.Sprintf("finit_module(%v, %q, %#x) failed", f, opts, flags),
-			Errno: e,
-		}
 	}
 
-	return nil
+	return err
 }
 
 // Delete removes a kernel module.
 func Delete(name string, flags uintptr) error {
-	modnameptr, err := unix.BytePtrFromString(name)
-	if err != nil {
-		return &SyscallError{Msg: fmt.Sprintf("could not delete module %q: %v", name, err)}
-	}
-
-	if _, _, e := unix.Syscall(unix.SYS_DELETE_MODULE, uintptr(unsafe.Pointer(modnameptr)), flags, 0); e != 0 {
-		return &SyscallError{Msg: fmt.Sprintf("could not delete module %q", name), Errno: e}
-	}
-
-	return nil
+	return unix.DeleteModule(name, int(flags))
 }
 
 type modState uint8
@@ -109,6 +64,7 @@ const (
 	unloaded modState = iota
 	loading
 	loaded
+	builtin
 )
 
 type dependency struct {
@@ -138,12 +94,16 @@ func Probe(name string, modParams string) error {
 func ProbeOptions(name, modParams string, opts ProbeOpts) error {
 	deps, err := genDeps(opts)
 	if err != nil {
-		return &SyscallError{Msg: fmt.Sprintf("could not generate dependency map %v", err)}
+		return fmt.Errorf("could not generate dependency map %v", err)
 	}
 
 	modPath, err := findModPath(name, deps)
 	if err != nil {
-		return &SyscallError{Msg: fmt.Sprintf("could not find module path %q: %v", name, err)}
+		return fmt.Errorf("could not find module path %q: %v", name, err)
+	}
+
+	if deps[modPath].state == builtin {
+		return nil
 	}
 
 	if opts.DryRunCB == nil {
@@ -167,6 +127,28 @@ func ProbeOptions(name, modParams string, opts ProbeOpts) error {
 	// we don't care to set the state to loaded
 	// deps[modPath].state = loaded
 	return nil
+}
+
+func checkBuiltin(moduleDir string, deps depMap) error {
+	f, err := os.Open(filepath.Join(moduleDir, "modules.builtin"))
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("could not open builtin file: %v", err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		txt := scanner.Text()
+		modPath := filepath.Join(moduleDir, strings.TrimSpace(txt))
+		if deps[modPath] == nil {
+			deps[modPath] = new(dependency)
+		}
+		deps[modPath].state = builtin
+	}
+
+	return scanner.Err()
 }
 
 func genDeps(opts ProbeOpts) (depMap, error) {
@@ -215,6 +197,10 @@ func genDeps(opts ProbeOpts) (depMap, error) {
 		return nil, err
 	}
 
+	if err = checkBuiltin(moduleDir, deps); err != nil {
+		return nil, err
+	}
+
 	return deps, nil
 }
 
@@ -231,12 +217,12 @@ func findModPath(name string, m depMap) (string, error) {
 func loadDeps(path string, m depMap, opts ProbeOpts) error {
 	dependency, ok := m[path]
 	if !ok {
-		return &SyscallError{Msg: fmt.Sprintf("could not find dependency %q", path)}
+		return fmt.Errorf("could not find dependency %q", path)
 	}
 
 	if dependency.state == loading {
-		return &SyscallError{Msg: fmt.Sprintf("circular dependency! %q already LOADING", path)}
-	} else if dependency.state == loaded {
+		return fmt.Errorf("circular dependency! %q already LOADING", path)
+	} else if (dependency.state == loaded) || (dependency.state == builtin) {
 		return nil
 	}
 
@@ -265,14 +251,12 @@ func loadModule(path, modParams string, opts ProbeOpts) error {
 
 	f, err := os.Open(path)
 	if err != nil {
-		return &SyscallError{Msg: fmt.Sprintf("could not open %q: %v", path, err)}
+		return err
 	}
 	defer f.Close()
 
-	if err := FileInit(f, modParams, 0); err != nil {
-		if serr, ok := err.(*SyscallError); !ok || (ok && serr.Errno != unix.EEXIST) {
-			return err
-		}
+	if err := FileInit(f, modParams, 0); err != nil && err != unix.EEXIST {
+		return err
 	}
 
 	return nil

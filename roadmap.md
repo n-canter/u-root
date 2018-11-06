@@ -1,33 +1,26 @@
-# Roadmap (alpha)
+# Roadmap
 
-## Finish commands and tests
+## Missing commands and flags
 
 Before starting work on a command, please open a GitHub issue and assign to
 yourself.
 
 | Command        | Flags TODO      | Comments               |
 | -------------- | --------------- | ---------------------- |
-| :x: checksum   |                 | md5, sha1, sha256, ... |
-| chmod          | -R, --reference | More mode forms        |
 | :x: flashrom   | -p internal     |                        |
-| fmap           |                 | Move into fiano        |
 | :x: gitclone   |                 | Not implemented yet!   |
 | grep           | -cnF            | RE2-compatible only    |
-| :x: less       |                 | Not implemented yet!   |
 | ls             | -hFfS           | -r is raw not reverse  |
 | :x: man        | -k              | Not implemented yet!   |
-| mv             | -nu             |                        |
+| mv             | -n              |                        |
 | ping           | -a              |                        |
 | :x: printf     |                 | Not implemented yet!   |
 | ps             |                 | Fix race conditions    |
 | readlink       | -emn            |                        |
-| rush           | -c              |                        |
-| seq            |                 |                        |
 | sort           | -bcfmnRu        |                        |
 | srvfiles       |                 | Serve files with TLS   |
 | sync           | -df             |                        |
-| time           | -p              | Rush builtin           |
-| :x: tr         |                 | Not implemented yet!   |
+| :x: time       | -p              |                        |
 | truncate       | -or             |                        |
 | uniq           | -i              |                        |
 | unshare        |                 | Different flag names   |

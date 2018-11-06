@@ -2,6 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Package kexecbin offers a kexec API via a callout to kexec-tools.
+//
+// u-root's kexec implementation currently covers less use-cases than the one
+// from kexec-tools.  The user has to embed a kexecbin program in the
+// initramfs, and make it available in the PATH, then call the `KexecBin`
+// function.  Please note that adding an external kexec implementation will
+// increase the ramfs size more than the pure-Go implementation from u-root.
 package kexecbin
 
 import (
@@ -18,7 +25,7 @@ var (
 // KexecBin uses kexec-tools binary and runtime architecture detection
 // to execute abritary files.
 func KexecBin(kernelFilePath string, kernelCommandline string, initrdFilePath string, dtFilePath string) error {
-	baseCmd, err := exec.LookPath("kexec")
+	baseCmd, err := exec.LookPath("kexecbin")
 	if err != nil {
 		return err
 	}
@@ -41,8 +48,7 @@ func KexecBin(kernelFilePath string, kernelCommandline string, initrdFilePath st
 		loadCommands = append(loadCommands, "--dtb="+dtFilePath)
 	} else {
 		for _, dtFilePath := range DeviceTreePaths {
-			_, err := os.Stat(dtFilePath)
-			if err == nil {
+			if _, err := os.Stat(dtFilePath); err == nil {
 				loadCommands = append(loadCommands, "--dtb="+dtFilePath)
 				break
 			}
