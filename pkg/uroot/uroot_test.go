@@ -255,7 +255,7 @@ func TestCreateInitramfs(t *testing.T) {
 				hasFile{path: "bbin/bb"},
 				hasRecord{cpio.Symlink("bbin/init", "bb")},
 				hasRecord{cpio.Symlink("bbin/ls", "bb")},
-				hasRecord{cpio.Symlink("bin/defaultsh", "/bbin/ls")},
+				hasRecord{cpio.Symlink("bin/defaultsh", "../bbin/ls")},
 			},
 		},
 		{
@@ -304,7 +304,7 @@ func TestCreateInitramfs(t *testing.T) {
 			},
 			want: nil,
 			validators: []archiveValidator{
-				hasRecord{cpio.Symlink("init", "/bin/systemd")},
+				hasRecord{cpio.Symlink("init", "bin/systemd")},
 			},
 		},
 		{
@@ -343,21 +343,21 @@ func TestCreateInitramfs(t *testing.T) {
 			},
 			want: nil,
 			validators: []archiveValidator{
-				hasRecord{cpio.Symlink("init", "/bbin/init")},
+				hasRecord{cpio.Symlink("init", "bbin/init")},
 
 				// bb mode.
 				hasFile{path: "bbin/bb"},
 				hasRecord{cpio.Symlink("bbin/init", "bb")},
 				hasRecord{cpio.Symlink("bbin/ls", "bb")},
-				hasRecord{cpio.Symlink("bin/defaultsh", "/bbin/ls")},
+				hasRecord{cpio.Symlink("bin/defaultsh", "../bbin/ls")},
 
 				// binary mode.
 				hasFile{path: "bin/cp"},
 				hasFile{path: "bin/dd"},
 
 				// source mode.
-				hasRecord{cpio.Symlink("buildbin/cat", "/buildbin/installcommand")},
-				hasRecord{cpio.Symlink("buildbin/chroot", "/buildbin/installcommand")},
+				hasRecord{cpio.Symlink("buildbin/cat", "installcommand")},
+				hasRecord{cpio.Symlink("buildbin/chroot", "installcommand")},
 				hasFile{path: "buildbin/installcommand"},
 				hasFile{path: "src/github.com/u-root/u-root/cmds/cat/cat.go"},
 				hasFile{path: "src/github.com/u-root/u-root/cmds/chroot/chroot.go"},

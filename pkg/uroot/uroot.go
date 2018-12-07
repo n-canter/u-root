@@ -221,15 +221,28 @@ func CreateInitramfs(logger logger.Logger, opts Opts) error {
 	if len(opts.DefaultShell) > 0 {
 		if target, err := resolveCommandOrPath(opts.DefaultShell, opts.Commands); err != nil {
 			logger.Printf("No default shell: %v", err)
-		} else if err := archive.AddRecord(cpio.Symlink("bin/defaultsh", target)); err != nil {
-			return err
+		} else {
+			rtarget, err := filepath.Rel("/", target)
+			if err != nil {
+				return err
+			}
+
+			if err := archive.AddRecord(cpio.Symlink("bin/defaultsh", filepath.Join("..", rtarget))); err != nil {
+				return err
+			}
 		}
 	}
 
 	if len(opts.InitCmd) > 0 {
-		if target, err := resolveCommandOrPath(opts.InitCmd, opts.Commands); err != nil {
+		target, err := resolveCommandOrPath(opts.InitCmd, opts.Commands)
+		if err != nil {
 			return fmt.Errorf("could not find init: %v", err)
-		} else if err := archive.AddRecord(cpio.Symlink("init", target)); err != nil {
+		}
+		rtarget, err := filepath.Rel("/", target)
+		if err != nil {
+			return err
+		}
+		if err := archive.AddRecord(cpio.Symlink("init", rtarget)); err != nil {
 			return err
 		}
 	}
@@ -384,6 +397,12 @@ func ParseExtraFiles(logger logger.Logger, archive *initramfs.Files, extraFiles 
 				continue
 			}
 			for _, lib := range libs {
+				// N.B.: we already added information about the src.
+				// Don't add it twice. We have to do this check here in
+				// case we're renaming the src to a different dest.
+				if lib == src {
+					continue
+				}
 				if err := archive.AddFileNoFollow(lib, lib[1:]); err != nil {
 					logger.Printf("WARNING: couldn't add ldd dependencies for %q: %v", lib, err)
 				}
